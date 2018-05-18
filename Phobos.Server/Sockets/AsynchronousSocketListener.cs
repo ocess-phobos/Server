@@ -1,9 +1,12 @@
 ﻿using System;
 using System.Diagnostics;
+using System.IO;
 using System.Linq;
 using System.Net;
 using System.Net.Sockets;
 using System.Threading;
+using MiscUtil.Core.Conversion;
+using MiscUtil.Core.IO;
 using Phobos.Server.Sockets.Handlers;
 using Phobos.Server.Sockets.Packets;
 
@@ -84,72 +87,51 @@ namespace Phobos.Server.Sockets
             // Read data from the client socket.   
             int bytesRead = handler.EndReceive(ar);
 
-            // TODO This code is a mess smh, at the very least needs comments
             if (bytesRead > 0)
             {
-                int packetStart = -1;
-
-                if (!tcpClient.AwaitingData)
+                if (!File.Exists(Path.Combine(Globals.AppPath, "test.bin")))
                 {
-                    for (int i = 0; i < tcpClient.Buffer.Length; i++)
-                    {
-                        if (!TCPPacket.ByteEquals(tcpClient.Buffer, TCPPacket.GetBinaryHeader(), i))
-                        {
-                            continue;
-                        }
-
-                        packetStart = i;
-                    }
-
-                    if (packetStart == -1)
-                    {
-                        // Assume invalid or corrupted pack sent.
-                        return;
-                    }
-                }
-                else
-                {
-                    packetStart = 0;
+                    File.Create(Path.Combine(Globals.AppPath, "test.bin")).Dispose();
                 }
 
-                for (int i = packetStart; i < tcpClient.Buffer.Length; i++)
+                using (MemoryStream stream = new MemoryStream(tcpClient.Buffer))
+                using (EndianBinaryReader reader = new EndianBinaryReader(EndianBitConverter.Big, stream))
                 {
-                    if (tcpClient.RequestingHeader)
+                    if (tcpClient.CurrentPacketLength == -1)
                     {
-                        if (TCPPacket.ByteEquals(tcpClient.Buffer, TCPPacket.GetBinaryHeader(), i))
-                        {
-                            tcpClient.RequestingHeader = false;
-                        }
-                        else
-                        {
-                            break;
-                        }
+                        tcpClient.CurrentPacketLength = reader.ReadInt32();
+
+                        tcpClient.InProgressPacketBytes.AddRange(EndianBitConverter.Big.GetBytes(tcpClient.CurrentPacketLength));
                     }
 
-                    tcpClient.AwaitingData = false;
-
-                    if (!TCPPacket.ByteEquals(tcpClient.Buffer, TCPPacket.GetBinaryFooter(), i))
+                    while (reader.BaseStream.Position < tcpClient.Buffer.Length)
                     {
                         tcpClient.AwaitingData = true;
 
-                        tcpClient.InProgressPacketBytes.Add(tcpClient.Buffer[i]);
+                        if (tcpClient.Buffer.Length - reader.BaseStream.Position < 4)
+                        {
+                            break;
+                        }
 
-                        Debug.WriteLine($"[DEBUG] {i + 1} bytes read out of 1024. Length of in progress byte list: {tcpClient.InProgressPacketBytes.Count}");
+                        int chunkLength = reader.ReadInt32();
 
-                        continue;
+                        if (chunkLength == 0)
+                        {
+                            tcpClient.AwaitingData = false;
+                            break;
+                        }
+
+                        reader.BaseStream.Position -= 4;
+
+                        tcpClient.InProgressPacketBytes.AddRange(reader.ReadBytes(4 + chunkLength));
+
+                        File.WriteAllBytes(Path.Combine(Globals.AppPath, "test.bin"), tcpClient.InProgressPacketBytes.ToArray());
                     }
 
-                    tcpClient.RequestingHeader = true;
-
-                    i += TCPPacket.GetBinaryFooter().Length;
-
-                    PacketReceived?.Invoke(tcpClient, new PacketReceivedEventArgs
+                    if (tcpClient.CurrentPacketLength == tcpClient.InProgressPacketBytes.Count)
                     {
-                        TCPPacket = new TCPPacket(tcpClient.InProgressPacketBytes.ToArray()),
-                        Sender = tcpClient
-                    });
-
-                    tcpClient.InProgressPacketBytes.Clear();
+                        tcpClient.AwaitingData = false;
+                    }
                 }
 
                 tcpClient.Buffer = new byte[1024];
@@ -160,7 +142,6 @@ namespace Phobos.Server.Sockets
                 }
                 else if (tcpClient.InProgressPacketBytes.Any())
                 {
-
                     PacketReceived?.Invoke(tcpClient, new PacketReceivedEventArgs
                     {
                         TCPPacket = new TCPPacket(tcpClient.InProgressPacketBytes.ToArray()),
@@ -168,6 +149,7 @@ namespace Phobos.Server.Sockets
                     });
 
                     tcpClient.InProgressPacketBytes.Clear();
+                    tcpClient.CurrentPacketLength = -1;
                 }
             }
             else if (tcpClient.InProgressPacketBytes.Any())

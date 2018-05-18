@@ -30,4 +30,8 @@
     <Optimize>true</Optimize>
   </PropertyGroup>
 
+  <ItemGroup>
+    <ProjectReference Include="..\MiscUtil.Core\MiscUtil.Core.csproj" />
+  </ItemGroup>
+
 </Project>

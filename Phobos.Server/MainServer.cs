@@ -4,6 +4,8 @@ using System.IO;
 using System.Linq;
 using System.Net.Sockets;
 using System.Text;
+using MiscUtil.Core.Conversion;
+using MiscUtil.Core.IO;
 using Phobos.Server.Sockets;
 using Phobos.Server.Sockets.Handlers;
 using Phobos.Server.Sockets.Packets;
@@ -27,13 +29,21 @@ namespace Phobos.Server
         {
             switch (e.TCPPacket.TextHeader.ToLower())
             {
-                case "testimage":
+                case "phobos":
+                {
+                    using (MemoryStream stream = new MemoryStream(e.TCPPacket.RawDataBytes))
+                    using (EndianBinaryReader reader = new EndianBinaryReader(EndianBitConverter.Big, stream))
                     {
-                        Debug.WriteLine(e.TCPPacket.DataBytesList.Count);
 
-                        File.WriteAllBytes(Path.Combine(Globals.AppPath, "test.png"), e.TCPPacket.DataBytesList[0].ToArray());
-                        //Process.Start(Path.Combine(Globals.AppPath, "test.png"));
+                        Console.WriteLine($"{reader.ReadUInt32()}");
+
+                        int textLength = reader.ReadInt32();
+
+                        Console.WriteLine($"{Encoding.ASCII.GetString(reader.ReadBytes(textLength))}");
+
+                        Console.WriteLine($"{EndianBitConverter.Little.ToDouble(e.TCPPacket.RawDataBytes, (int)reader.BaseStream.Position)}");
                     }
+                }
                     break;
                 default:
                     break;
@@ -47,16 +57,12 @@ namespace Phobos.Server
         /// <param name="packet"></param>
         public static void Send(TCPClient handler, TCPPacket packet)
         {
-            byte[] buffer = TCPPacket.GetBinaryHeader()
-                .Concat(BitConverter.GetBytes(packet.TextHeader.Length))
-                .Concat(Encoding.UTF8.GetBytes(packet.TextHeader))
-                .Concat(packet.DataBytesList.Aggregate((a1, a2) => a1.Concat(Encoding.UTF8.GetBytes(TCPPacket.SEP_STRING)).Concat(a2).ToArray()))
-                .Concat(TCPPacket.GetBinaryFooter()).ToArray();
+            byte[] buffer = null; // TODO REWRITE
 
             for (int i = 0; i < buffer.Length; i += 1024)
             {
                 // Begin sending the data to the remote device.  
-                handler.WorkSocket.BeginSend(buffer, 0, buffer.Length <= 1024 ? buffer.Length - i : 1024, 0, SendData, handler.WorkSocket);
+                handler.WorkSocket.BeginSend(buffer, i, buffer.Length <= 1024 ? buffer.Length - i : 1024, 0, SendData, handler.WorkSocket);
             }
         }
 

@@ -10,8 +10,8 @@ namespace Phobos.Server.Sockets
     {
         // Size of receive buffer.  
         public const int BUFFER_SIZE = 1024;
+        public int CurrentPacketLength;
         public bool AwaitingData;
-        public bool RequestingHeader;
         public Socket WorkSocket { get; set; }
         // Receive buffer.  
         public byte[] Buffer = new byte[BUFFER_SIZE];
