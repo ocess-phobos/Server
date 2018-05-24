@@ -99,8 +99,6 @@ namespace Phobos.Server.Sockets
                         {
                             phobosClient.CurrentPacketLength = reader.ReadInt32();
 
-                            Debug.WriteLine($"[DEBUG]: {phobosClient.CurrentPacketLength}");
-
                             if (phobosClient.CurrentPacketLength <= 0)
                             {
                                 break;
