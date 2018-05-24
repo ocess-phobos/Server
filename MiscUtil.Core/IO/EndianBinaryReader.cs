@@ -413,7 +413,7 @@ namespace MiscUtil.Core.IO
 			this.CheckDisposed();
 			if (count < 0)
 			{
-				throw new ArgumentOutOfRangeException("count");
+				throw new ArgumentOutOfRangeException(nameof(count));
 			}
 			byte[] ret = new byte[count];
 			int index=0;

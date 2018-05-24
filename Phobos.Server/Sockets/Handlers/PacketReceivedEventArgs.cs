@@ -5,7 +5,7 @@ namespace Phobos.Server.Sockets.Handlers
 {
     public class PacketReceivedEventArgs : EventArgs
     {
-        public TCPPacket TCPPacket { get; set; }
-        public TCPClient Sender { get; set; }
+        public PhobosPacket PhobosPacket { get; set; }
+        public PhobosClient Sender { get; set; }
     }
 }

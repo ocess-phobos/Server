@@ -10,6 +10,7 @@
   </PropertyGroup>
 
   <ItemGroup>
+    <ProjectReference Include="..\MiscUtil.Core\MiscUtil.Core.csproj" />
     <ProjectReference Include="..\Phobos.Server\Phobos.Server.csproj" />
   </ItemGroup>
 

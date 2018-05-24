@@ -41,8 +41,7 @@ namespace Phobos.Server.Sockets
                     // Set the event to non-signaled state.  
                     AllDone.Reset();
 
-                    // Start an asynchronous socket to listen for connections.  
-                    Console.WriteLine("Waiting for a connection...");
+                    // Start an asynchronous socket to listen for connections.
                     listener.BeginAccept(AcceptCallback, listener);
 
                     // Wait until a connection is made before continuing.  
@@ -55,7 +54,7 @@ namespace Phobos.Server.Sockets
                 Console.WriteLine(e.ToString());
             }
 
-            Console.WriteLine("\nPress ENTER to continue...");
+            Console.WriteLine("\nAll listeners closed. Press ENTER to close...");
             Console.Read();
         }
 
@@ -69,99 +68,95 @@ namespace Phobos.Server.Sockets
             Socket handler = listener.EndAccept(ar);
 
             // Create the state object.  
-            TCPClient state = new TCPClient
+            PhobosClient state = new PhobosClient
             {
                 WorkSocket = handler
             };
 
-            handler.BeginReceive(state.Buffer, 0, TCPClient.BUFFER_SIZE, 0, ReadCallback, state);
+            handler.BeginReceive(state.Buffer, 0, PhobosClient.BUFFER_SIZE, 0, ReadCallback, state);
         }
 
         private static void ReadCallback(IAsyncResult ar)
         {
             // Retrieve the state object and the handler socket  
             // from the asynchronous state object.  
-            TCPClient tcpClient = (TCPClient)ar.AsyncState;
-            Socket handler = tcpClient.WorkSocket;
+            PhobosClient phobosClient = (PhobosClient)ar.AsyncState;
+            Socket handler = phobosClient.WorkSocket;
 
             // Read data from the client socket.   
             int bytesRead = handler.EndReceive(ar);
 
             if (bytesRead > 0)
             {
-                if (!File.Exists(Path.Combine(Globals.AppPath, "test.bin")))
-                {
-                    File.Create(Path.Combine(Globals.AppPath, "test.bin")).Dispose();
-                }
-
-                using (MemoryStream stream = new MemoryStream(tcpClient.Buffer))
+                using (MemoryStream stream = new MemoryStream(phobosClient.Buffer))
                 using (EndianBinaryReader reader = new EndianBinaryReader(EndianBitConverter.Big, stream))
                 {
-                    if (tcpClient.CurrentPacketLength == -1)
+                    while (reader.BaseStream.Position < phobosClient.Buffer.Length)
                     {
-                        tcpClient.CurrentPacketLength = reader.ReadInt32();
+                        phobosClient.AwaitingData = true;
 
-                        tcpClient.InProgressPacketBytes.AddRange(EndianBitConverter.Big.GetBytes(tcpClient.CurrentPacketLength));
-                    }
-
-                    while (reader.BaseStream.Position < tcpClient.Buffer.Length)
-                    {
-                        tcpClient.AwaitingData = true;
-
-                        if (tcpClient.Buffer.Length - reader.BaseStream.Position < 4)
+                        if (phobosClient.CurrentPacketLength == -1)
                         {
-                            break;
+                            phobosClient.CurrentPacketLength = reader.ReadInt32();
+
+                            if (phobosClient.CurrentPacketLength <= 0)
+                            {
+                                break;
+                            }
+
+                            phobosClient.InProgressPacketBytes.AddRange(EndianBitConverter.Big.GetBytes(phobosClient.CurrentPacketLength));
                         }
 
-                        int chunkLength = reader.ReadInt32();
+                        int remainingBytes = phobosClient.CurrentPacketLength - phobosClient.InProgressPacketBytes.Count;
 
-                        if (chunkLength == 0)
+                        // ReadBytes only returns the available amount of bytes
+                        phobosClient.InProgressPacketBytes.AddRange(reader.ReadBytes((remainingBytes > 1024 ? 1024 : remainingBytes) < 0 ? 1024 : remainingBytes));
+
+                        if (phobosClient.CurrentPacketLength != phobosClient.InProgressPacketBytes.Count)
                         {
-                            tcpClient.AwaitingData = false;
-                            break;
+                            continue;
                         }
 
-                        reader.BaseStream.Position -= 4;
+                        PacketReceived?.Invoke(phobosClient, new PacketReceivedEventArgs
+                        {
+                            PhobosPacket = new PhobosPacket(phobosClient.InProgressPacketBytes.ToArray()),
+                            Sender = phobosClient
+                        });
 
-                        tcpClient.InProgressPacketBytes.AddRange(reader.ReadBytes(4 + chunkLength));
+                        phobosClient.InProgressPacketBytes.Clear();
 
-                        File.WriteAllBytes(Path.Combine(Globals.AppPath, "test.bin"), tcpClient.InProgressPacketBytes.ToArray());
-                    }
-
-                    if (tcpClient.CurrentPacketLength == tcpClient.InProgressPacketBytes.Count)
-                    {
-                        tcpClient.AwaitingData = false;
+                        phobosClient.CurrentPacketLength = -1;
+                        phobosClient.AwaitingData = false;
                     }
                 }
 
-                tcpClient.Buffer = new byte[1024];
+                phobosClient.Buffer = new byte[1024];
 
-                if (tcpClient.AwaitingData)
+                if (phobosClient.AwaitingData)
                 {
-                    handler.BeginReceive(tcpClient.Buffer, 0, TCPClient.BUFFER_SIZE, 0, ReadCallback, tcpClient);
+                    handler.BeginReceive(phobosClient.Buffer, 0, PhobosClient.BUFFER_SIZE, 0, ReadCallback, phobosClient);
                 }
-                else if (tcpClient.InProgressPacketBytes.Any())
+                else if (phobosClient.InProgressPacketBytes.Any())
                 {
-                    PacketReceived?.Invoke(tcpClient, new PacketReceivedEventArgs
+                    PacketReceived?.Invoke(phobosClient, new PacketReceivedEventArgs
                     {
-                        TCPPacket = new TCPPacket(tcpClient.InProgressPacketBytes.ToArray()),
-                        Sender = tcpClient
+                        PhobosPacket = new PhobosPacket(phobosClient.InProgressPacketBytes.ToArray()),
+                        Sender = phobosClient
                     });
 
-                    tcpClient.InProgressPacketBytes.Clear();
-                    tcpClient.CurrentPacketLength = -1;
+                    phobosClient.InProgressPacketBytes.Clear();
                 }
             }
-            else if (tcpClient.InProgressPacketBytes.Any())
+            else if (phobosClient.InProgressPacketBytes.Any())
             {
 
-                PacketReceived?.Invoke(tcpClient, new PacketReceivedEventArgs
+                PacketReceived?.Invoke(phobosClient, new PacketReceivedEventArgs
                 {
-                    TCPPacket = new TCPPacket(tcpClient.InProgressPacketBytes.ToArray()),
-                    Sender = tcpClient
+                    PhobosPacket = new PhobosPacket(phobosClient.InProgressPacketBytes.ToArray()),
+                    Sender = phobosClient
                 });
 
-                tcpClient.InProgressPacketBytes.Clear();
+                phobosClient.InProgressPacketBytes.Clear();
             }
         }
     }
