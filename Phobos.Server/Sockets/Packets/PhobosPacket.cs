@@ -65,6 +65,11 @@ namespace Phobos.Server.Sockets.Packets
         /// <param name="rawPacket"></param>
         public PhobosPacket(byte[] rawPacket)
         {
+#if DEBUG
+            // Write to file to debug packet receive errors
+            File.WriteAllBytes(Path.Combine(Globals.AppPath, $"packet-{DateTime.Now.ToFileTime()}"), rawPacket);
+#endif
+
             int entireLength = EndianBitConverter.Big.ToInt32(rawPacket, 0);
 
             int headerLength = EndianBitConverter.Big.ToInt32(rawPacket, 4);

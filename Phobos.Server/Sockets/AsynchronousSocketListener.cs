@@ -95,9 +95,11 @@ namespace Phobos.Server.Sockets
                     {
                         phobosClient.AwaitingData = true;
 
-                        if (phobosClient.CurrentPacketLength == -1)
+                        if (phobosClient.CurrentPacketLength <= 0)
                         {
                             phobosClient.CurrentPacketLength = reader.ReadInt32();
+
+                            Debug.WriteLine($"[DEBUG]: {phobosClient.CurrentPacketLength}");
 
                             if (phobosClient.CurrentPacketLength <= 0)
                             {
